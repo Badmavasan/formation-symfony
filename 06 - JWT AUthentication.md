@@ -333,6 +333,118 @@ class HomepageController extends AbstractController
 }
 ```
 
+## Modification pour la partie login 
+
+```
+security:
+    encoders:
+        App\Entity\User:
+            algorithm: auto
+
+    providers:
+        # Votre provider d’utilisateurs (exemple ici avec l’entité User)
+        app_user_provider:
+            entity:
+                class: App\Entity\User
+                property: username
+
+    firewalls:
+        dev:
+            pattern: ^/(_(profiler|wdt)|css|images|js)/
+            security: false
+
+        main:
+            pattern: ^/
+            stateless: true
+            # On utilise notre authentificateur personnalisé pour récupérer le token depuis le cookie
+            custom_authenticators:
+                - App\Security\JWTAuthenticator
+            logout:
+                path: /logout
+                # Vous pouvez ajouter un callback pour supprimer le cookie de déconnexion
+                invalidate_session: false
+
+    access_control:
+        # Les pages de login et d'inscription sont accessibles anonymement
+        - { path: ^/(login|register), roles: IS_AUTHENTICATED_ANONYMOUSLY }
+        # Le reste des pages nécessite d'être connecté (par exemple ROLE_USER)
+        - { path: ^/, roles: ROLE_USER }
+```
+
+```
+<?php
+// src/Controller/SecurityController.php
+namespace App\Controller;
+
+use App\Entity\User;
+use Doctrine\ORM\EntityManagerInterface;
+use Lexik\Bundle\JWTAuthenticationBundle\Services\JWTTokenManagerInterface;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Cookie;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Routing\Annotation\Route;
+use Symfony\Component\Security\Core\Encoder\UserPasswordEncoderInterface;
+
+class SecurityController extends AbstractController
+{
+    /**
+     * @Route("/login", name="login")
+     */
+    public function login(
+        Request $request,
+        EntityManagerInterface $em,
+        UserPasswordEncoderInterface $passwordEncoder,
+        JWTTokenManagerInterface $jwtManager
+    ): Response {
+        // Si le formulaire est soumis en POST
+        if ($request->isMethod('POST')) {
+            $username = $request->request->get('username');
+            $password = $request->request->get('password');
+
+            // Récupérer l'utilisateur dans la base de données
+            $user = $em->getRepository(User::class)->findOneBy(['username' => $username]);
+            if (!$user) {
+                return $this->render('security/login.html.twig', [
+                    'error' => 'Utilisateur non trouvé.'
+                ]);
+            }
+            // Vérifier le mot de passe
+            if (!$passwordEncoder->isPasswordValid($user, $password)) {
+                return $this->render('security/login.html.twig', [
+                    'error' => 'Mot de passe invalide.'
+                ]);
+            }
+
+            // Générer le token JWT pour l'utilisateur
+            $token = $jwtManager->create($user);
+
+            // Stocker le token dans un cookie (vous pouvez adapter les options de sécurité)
+            $cookie = Cookie::create('BEARER', $token, time() + 3600, '/', null, false, true);
+
+            // Rediriger vers la page d'accueil ou le dashboard
+            $response = $this->redirectToRoute('dashboard');
+            $response->headers->setCookie($cookie);
+
+            return $response;
+        }
+
+        // Afficher le formulaire de login
+        return $this->render('security/login.html.twig');
+    }
+
+    /**
+     * @Route("/logout", name="logout")
+     */
+    public function logout()
+    {
+        // La déconnexion sera gérée par Symfony (attention à retirer ou invalider le cookie si nécessaire)
+        throw new \Exception('This method can be blank - it will be intercepted by the logout key on the firewall.');
+    }
+}
+
+```
+
 ## 12. Tester l'Authentification JWT
 
 - Requête Authentifiée : Faites une requête GET vers /homepage avec un token JWT valide dans l'en-tête Authorization.
