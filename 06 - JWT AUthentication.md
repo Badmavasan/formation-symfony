@@ -222,10 +222,14 @@ class JwtAuthenticator extends AbstractAuthenticator
         $this->userRepository = $userRepository;
     }
 
-    public function supports(Request $request): ?bool
+    public function supports(Request $request): bool
     {
-        $authHeader = $request->headers->get('Authorization');
-        return $authHeader && str_starts_with($authHeader, 'Bearer ');
+        if (preg_match('#^/(login|register)#', $request->getPathInfo())) {
+            return false;
+        }
+        
+        // Only support if a JWT token exists in the cookie
+        return $request->cookies->has('token');
     }
 
     public function authenticate(Request $request): Passport
